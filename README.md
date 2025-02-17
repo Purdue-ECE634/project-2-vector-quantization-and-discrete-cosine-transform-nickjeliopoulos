@@ -16,4 +16,4 @@ Define how you characterize "satisfactory" reconstruction.
 
 **Note: For each part, you need to test your method on at least two different images.** 
 
-A collection of images are available on the course website [HERE] (https://engineering.purdue.edu/~zhu0/ece634/sample_image.zip). 
+A collection of images are available [HERE] (https://engineering.purdue.edu/~zhu0/ece634/sample_image.zip). 
