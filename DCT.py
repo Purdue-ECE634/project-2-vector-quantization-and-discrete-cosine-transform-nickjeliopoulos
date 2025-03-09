@@ -27,7 +27,7 @@ def idct2(block):
 
 
 def apply_dct(image, block_size=8):
-	"""Apply block-wise DCT to an image."""
+	""" Apply block-wise DCT to an image. """
 	h, w = image.shape
 	dct_image = np.zeros((h, w))
 	
@@ -98,7 +98,13 @@ def main():
 	### Load and preprocess image
 	image_path = "akiyo0000.png"
 	image = Image.open(image_path).convert("L")
-	transform = transforms.Compose([transforms.ToTensor()])
+
+	transform = transforms.Compose([
+		transforms.ToTensor(),
+		transforms.CenterCrop([256, 256]),
+		transforms.Resize([224, 224]),
+	])
+
 	image_tensor = transform(image).squeeze().numpy()
 	
 	### Apply DCT and reconstruct with different coefficients
