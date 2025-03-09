@@ -13,7 +13,7 @@ import os
 ### Trained via fit(...), inferences / quantizes via forward(...)
 ###
 class VectorQuantizer(nn.Module):
-	def __init__(self, codebook_size: int, channels: int = 1, block_size: int = 8, max_iters: int = 128):
+	def __init__(self, codebook_size: int, channels: int, block_size: int, max_iters: int):
 		super(VectorQuantizer, self).__init__()
 		self.codebook_size = codebook_size
 		self.block_size = block_size
@@ -36,7 +36,7 @@ class VectorQuantizer(nn.Module):
 		L, BB, _ = blocks.shape
 		blocks = blocks.unsqueeze(1).expand(L, N, BB, C)
 		codebook_expanded = self.codebook.unsqueeze(0).expand(L, N, BB, C)
-		distances = torch.norm(blocks - codebook_expanded, dim=2)
+		distances = torch.linalg.vector_norm(blocks - codebook_expanded, dim=2)
 		return distances
 
 
