@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import torchvision.transforms as transforms
 from typing import *
+import argparse
+import os
 
 
 def PSNR(source, target) -> float:
@@ -94,10 +96,15 @@ def apply_firstk_causal_index_idct(dct_image, block_size=8, k=8):
 	return reconstructed
 
 
-def main():
+if __name__ == "__main__":
+	### Get arguments
+	parser = argparse.ArgumentParser()
+	parser.add_argument("--image-path", type=str, default="akiyo0000.png")
+	parser.add_argument("--output-folder", type=str, default="output/")
+	args = parser.parse_args()
+
 	### Load and preprocess image
-	image_path = "akiyo0000.png"
-	image = Image.open(image_path).convert("L")
+	image = Image.open(args.image_path).convert("L")
 
 	transform = transforms.Compose([
 		transforms.ToTensor(),
@@ -123,7 +130,8 @@ def main():
 		plt.imshow(reconstructed, cmap='gray')
 		plt.title(f'K={k} | PSNR={PSNR(image_tensor, reconstructed):.1f}')
 		plt.axis('off')
-		plt.imsave(f'reconstructed_topk_mag_k{k}.png', reconstructed, cmap='gray')
+		path = os.path.join(args.output_folder, f'dct_reconstructed_topk_mag_k{k}.png')
+		plt.imsave(path, reconstructed, cmap='gray')
 
 	plt.subplot(2, 3, 6)
 	plt.imshow(image_tensor, cmap='gray')
@@ -142,14 +150,12 @@ def main():
 		plt.imshow(reconstructed, cmap='gray')
 		plt.title(f'K={k} | PSNR={PSNR(image_tensor, reconstructed):.1f}')
 		plt.axis('off')
-		plt.imsave(f'reconstructed_causal_k{k}.png', reconstructed, cmap='gray')
+		path = os.path.join(args.output_folder, f'dct_reconstructed_causal_k{k}.png')
+		plt.imsave(path, reconstructed, cmap='gray')
 	
 	plt.subplot(2, 3, 6)
 	plt.imshow(image_tensor, cmap='gray')
 	plt.title('Original')
 	plt.axis('off')
 	plt.show()
-
-
-if __name__ == "__main__":
-	main()
+	
