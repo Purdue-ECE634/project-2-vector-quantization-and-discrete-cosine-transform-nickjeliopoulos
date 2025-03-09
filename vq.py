@@ -44,32 +44,37 @@ class VectorQuantizer(nn.Module):
 
 	def _codebook_block_distance(self, blocks: torch.Tensor) -> torch.Tensor:
 		L, BB, C = blocks.shape
-		blocks = blocks.unsqueeze(1).expand(L, self.codebook_size, BB, C)
-		codebook_expanded = self.codebook.unsqueeze(0).expand(L, self.codebook_size, BB, C)
-		distances = torch.linalg.vector_norm(blocks - codebook_expanded, dim=2)
-		return distances	
+		### Flatten blocks and codebook for distance calculation - (L, B*B, C) -> (L, B*B*C)
+		blocks_flat = blocks.reshape(L, -1)
+		codebook_flat = self.codebook.reshape(self.codebook_size, -1)
+		### Use p-norm (p=2) as a distance metric
+		distances = torch.cdist(blocks_flat, codebook_flat, p=2)
+		return distances
 	
 
 	### Lloyd's Algorithm to create a codebook
-	def fit(self, tensor_dataset: List[torch.Tensor]) -> Any:
+	def fit(self, tensor_train_dataset: List[torch.Tensor]) -> Any:
 		### Blockify the tensor dataset
-		all_blocks = torch.cat([self.blockify_image(img) for img in tensor_dataset], dim=0)
+		block_train_dataset = torch.cat([self.blockify_image(img) for img in tensor_train_dataset], dim=0)
+		N, BB, C = block_train_dataset.shape
 
 		### Iterate until convergence or maximum iterations reached
 		for iteration_index in range(self.max_iters):
-			distances = self._codebook_block_distance(all_blocks)
+			distances = self._codebook_block_distance(block_train_dataset)
 			closest = torch.argmin(distances, dim=1)
+			### Initialize new codebook and counts
+			### NOTE: There are many choices for initialization, this is just one
 			new_codebook = torch.zeros_like(self.codebook)
 			counts = torch.zeros(self.codebook_size)
 
 			print(f"Iteration {iteration_index+1}/{self.max_iters}")
-			# print(f"Distances Shape: {distances.shape}")
-			# print(f"Closest Shape: {closest.shape}")
+			print(f"Distances Shape: {distances.shape}")
+			print(f"Closest Shape: {closest.shape}")
 
 			### Populate new codebook
-			for i in range(all_blocks.shape[0]):
+			for i in range(N):
 				closest_indices = closest[i]
-				new_codebook[closest_indices] += all_blocks[i]
+				new_codebook[closest_indices] += block_train_dataset[i]
 				counts[closest_indices] += 1
 
 			### Avoid division by zero, rescale codebook by counts
