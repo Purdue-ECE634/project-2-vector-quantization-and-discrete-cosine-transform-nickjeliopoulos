@@ -33,7 +33,6 @@ class VectorQuantizer(nn.Module):
 
 	### Reconstruct from quantized codebook blocks
 	### Input (L, B*B, C) -> Output (H, W, C)
-	### TODO: Fix to work with color?
 	def unblockify_image(self, blocks: torch.Tensor, image_shape: Tuple[int, int]) -> torch.Tensor:
 		H, W, C = image_shape
 		B = self.block_size
@@ -42,11 +41,16 @@ class VectorQuantizer(nn.Module):
 		return blocks.view(H, W, C)
 
 
+	### Identify the closest codebook vector for each block
+	### Returns (L, codebook_size) tensor of distances
+	### Interpretation: each block (l in L) has a distance to each codebook vector (n in codebook_size)
 	def _codebook_block_distance(self, blocks: torch.Tensor) -> torch.Tensor:
 		L, BB, C = blocks.shape
-		### Flatten blocks and codebook for distance calculation - (L, B*B, C) -> (L, B*B*C)
+		N, _, _ = self.codebook.shape
+		### Flatten blocks   (L, B*B, C) -> (L, B*B*C)
+		### Flatten codebook (N, B*B, C) -> (N, B*B*C)
 		blocks_flat = blocks.reshape(L, -1)
-		codebook_flat = self.codebook.reshape(self.codebook_size, -1)
+		codebook_flat = self.codebook.reshape(N, -1)
 		### Use p-norm (p=2) as a distance metric
 		distances = torch.cdist(blocks_flat, codebook_flat, p=2)
 		return distances
@@ -60,22 +64,24 @@ class VectorQuantizer(nn.Module):
 
 		### Iterate until convergence or maximum iterations reached
 		for iteration_index in range(self.max_iters):
-			distances = self._codebook_block_distance(block_train_dataset)
-			closest = torch.argmin(distances, dim=1)
+			block_codebook_distances = self._codebook_block_distance(block_train_dataset)
+			closest_codebook_indices = torch.argmin(block_codebook_distances, dim=1)
 			### Initialize new codebook and counts
 			### NOTE: There are many choices for initialization, this is just one
-			new_codebook = torch.zeros_like(self.codebook)
-			counts = torch.zeros(self.codebook_size)
+			# new_codebook = torch.zeros_like(self.codebook)
+			new_codebook = self.codebook.clone()
+			# new_codebook = torch.zeros_like(self.codebook) + torch.randn_like(self.codebook)
+			# new_codebook = torch.zeros_like(self.codebook)
+			counts = torch.zeros(N, dtype=torch.float32)
 
 			print(f"Iteration {iteration_index+1}/{self.max_iters}")
-			print(f"Distances Shape: {distances.shape}")
-			print(f"Closest Shape: {closest.shape}")
 
-			### Populate new codebook
+			### Populate new codebook by summing up all blocks that are closest to each codebook vector
+			### Afterwards, average by the number of blocks that were closest to each codebook vector
 			for i in range(N):
-				closest_indices = closest[i]
+				closest_indices = closest_codebook_indices[i]
 				new_codebook[closest_indices] += block_train_dataset[i]
-				counts[closest_indices] += 1
+				counts[closest_indices] += 1.0
 
 			### Avoid division by zero, rescale codebook by counts
 			for i in range(self.codebook_size):
