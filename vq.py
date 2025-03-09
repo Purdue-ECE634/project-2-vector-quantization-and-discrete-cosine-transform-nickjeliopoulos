@@ -31,25 +31,25 @@ class VectorQuantizer(nn.Module):
 		return blocks
 
 
-	def _codebook_block_distance(self, blocks: torch.Tensor) -> torch.Tensor:
-		N, BB, C = self.codebook.shape
-		L, BB, _ = blocks.shape
-		blocks = blocks.unsqueeze(1).expand(L, N, BB, C)
-		codebook_expanded = self.codebook.unsqueeze(0).expand(L, N, BB, C)
-		distances = torch.linalg.vector_norm(blocks - codebook_expanded, dim=2)
-		return distances
-
-
 	### Reconstruct from quantized codebook blocks
 	### Input (L, B*B, C) -> Output (H, W, C)
+	### TODO: Fix to work with color?
 	def unblockify_image(self, blocks: torch.Tensor, image_shape: Tuple[int, int]) -> torch.Tensor:
 		H, W, C = image_shape
 		B = self.block_size
 		blocks = blocks.view(H // B, W // B, B, B, C)
 		blocks = blocks.permute(0, 2, 1, 3, 4).contiguous()
 		return blocks.view(H, W, C)
-		
+
+
+	def _codebook_block_distance(self, blocks: torch.Tensor) -> torch.Tensor:
+		L, BB, C = blocks.shape
+		blocks = blocks.unsqueeze(1).expand(L, self.codebook_size, BB, C)
+		codebook_expanded = self.codebook.unsqueeze(0).expand(L, self.codebook_size, BB, C)
+		distances = torch.linalg.vector_norm(blocks - codebook_expanded, dim=2)
+		return distances	
 	
+
 	### Lloyd's Algorithm to create a codebook
 	def fit(self, tensor_dataset: List[torch.Tensor]) -> Any:
 		### Blockify the tensor dataset
@@ -158,6 +158,6 @@ if __name__ == "__main__":
 			### Afterwards, convert to (C, H, W) format instead of (H, W, C) to save as PIL image
 			quantized_image_tensor = vq(image_tensor).permute(2, 0, 1)
 			quantized_image = to_pil_transform(quantized_image_tensor)
-			quantized_image.save(os.path.join(args.output_folder, f"quantized_{filename}"))
+			quantized_image.save(os.path.join(args.output_folder, f"quant_c{args.codebook_size}_b{args.block_size}_{filename}"))
 	
 
