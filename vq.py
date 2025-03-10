@@ -9,7 +9,6 @@ import os
 
 
 ###
-### Implements Lloyd's Algorithm for Vector Quantization
 ### Trained via fit(...), inferences / quantizes via forward(...)
 ###
 class VectorQuantizer(nn.Module):
@@ -58,7 +57,7 @@ class VectorQuantizer(nn.Module):
 		return distances
 	
 
-	### Lloyd's Algorithm (modified) to create a codebook
+	### Fit codebook to dataset (could be a single image, or many!)
 	@torch.inference_mode()
 	def fit(self, tensor_train_dataset: List[torch.Tensor]) -> Any:
 		### Blockify the tensor dataset
@@ -74,30 +73,45 @@ class VectorQuantizer(nn.Module):
 			### Compute distances between each block and each codebook vector, then find the closest codebook vector to each block
 			block_codebook_distances = self._codebook_block_distance(block_train_dataset)
 			closest_codebook_indices = torch.argmin(block_codebook_distances, dim=1)
+
 			### Initialize new codebook and counts
 			### NOTE: There are many choices for initialization, this is just one
-			# new_codebook = torch.zeros_like(self.codebook)
 			### Add a small amount of noise to the codebook. Because we initialize the codebook with random blocks from the actual trainset, we want to encourage
 			### more variance in the codebook. This changes some of the closest distance computations, and should result in more diverse codebook vectors.
-			new_codebook = self.codebook.clone() + torch.randn_like(self.codebook) * 1e-4
-			counts = torch.zeros(N, dtype=torch.float32)
+			### Unsure. Leaving out.
+			new_codebook = self.codebook.clone() # + torch.randn_like(self.codebook) * 1e-4
 
-			print(f"Iteration {iteration_index+1}/{self.max_iters}")
-
+			### Old (SLOW!)
 			### Populate new codebook by summing up all blocks that are closest to each codebook vector
 			### Use a running average to update the codebook in a single loop
-			for i in range(N):
-				closest_index = closest_codebook_indices[i]
-				counts[closest_index] += 1.0
-				new_codebook[closest_index] += (block_train_dataset[i] - new_codebook[closest_index]) / counts[closest_index]
+			# counts = torch.zeros(N, dtype=torch.float32)
+			# for i in range(N):
+			# 	closest_index = closest_codebook_indices[i]
+			# 	counts[closest_index] += 1.0
+			# 	new_codebook[closest_index] += (block_train_dataset[i] - new_codebook[closest_index]) / counts[closest_index]
+
+			### New. Faster with the vectorized mean
+			for idx in range(self.codebook_size):
+				assigned_blocks = block_train_dataset[closest_codebook_indices == idx]
+				### If we have assigned blocks, then update the codebook vector
+				if len(assigned_blocks) > 0:
+					new_codebook[idx] = assigned_blocks.mean(dim=0)
+				### Empty clusters? - just keep the old codebook vector
+				### NOTE: We can just pass here, if we initialize the new_codebook with the old codebook
+				else:
+					pass
+					#new_codebook[idx] = self.codebook[idx]
 
 			### Check for convergence - if we haven't changed much, then stop early!
-			if torch.allclose(self.codebook, new_codebook, rtol=1e-4, atol=1e-8):
-				print(f"Early exiting! Converged early")
+			if torch.allclose(self.codebook, new_codebook, rtol=1e-6, atol=1e-8):
+				print(f"Early exiting - converged!")
 				break
 			
 			### Update codebook
 			self.codebook = new_codebook
+
+		### Info at the end for fun
+		print(f"Finished fitting codebook in {iteration_index+1} iterations")
 
 		return self
 
