@@ -31,18 +31,6 @@ def idct2(block):
 	return scipy.fftpack.idct(scipy.fftpack.idct(block, axis=0, norm='ortho'), axis=1, norm='ortho')
 
 
-def apply_dct(image, block_size=8):
-	""" Apply block-wise DCT to an image. """
-	h, w = image.shape
-	dct_image = np.zeros((h, w))
-	
-	for i in range(0, h, block_size):
-		for j in range(0, w, block_size):
-			dct_image[i:i+block_size, j:j+block_size] = dct2(image[i:i+block_size, j:j+block_size])
-	
-	return dct_image
-
-
 ### Used for the causal mask
 def zigzag_indices(n: int) -> List[Tuple[int, int]]:
     indices = [(x, y) for x in range(n) for y in range(n)]
@@ -61,6 +49,20 @@ def get_causal_mask(block_size: int, r: int) -> np.ndarray:
     return mask
 
 
+### Forward DCT
+def apply_dct(image, block_size=8):
+	""" Apply block-wise DCT to an image. """
+	h, w = image.shape
+	dct_image = np.zeros((h, w))
+	
+	for i in range(0, h, block_size):
+		for j in range(0, w, block_size):
+			dct_image[i:i+block_size, j:j+block_size] = dct2(image[i:i+block_size, j:j+block_size])
+	
+	return dct_image
+
+
+### Inverse DCT (IDCT) with a causal mask
 def apply_firstk_causal_index_idct(dct_image, block_size=8, k=8):
 	"""	Reconstruct image using a causal mask over DCT coefficients.
 		Note "k" in this context is slightly different from the previous function.
@@ -99,11 +101,11 @@ if __name__ == "__main__":
 		transforms.Resize([224, 224]),
 	])
 
-	image_tensor = transform(image).squeeze().numpy()
+	original_image = transform(image).squeeze().numpy()
 	
 	### Apply DCT and reconstruct with different coefficients
-	dct_image = apply_dct(image_tensor, block_size=args.block_size)
-	print(f"Original image shape: {image_tensor.shape}")
+	dct_image = apply_dct(original_image, block_size=args.block_size)
+	print(f"Original image shape: {original_image.shape}")
 	print(f"DCT image shape: {dct_image.shape}")
 
 	###
@@ -120,7 +122,7 @@ if __name__ == "__main__":
 		reconstructed = apply_firstk_causal_index_idct(dct_image, block_size=args.block_size, k=k)
 		plt.subplot(plot_rows, plot_columns, idx+1)
 		plt.imshow(reconstructed, cmap='gray')
-		plt.title(f'K={k} | PSNR={PSNR(image_tensor, reconstructed):.1f}')
+		plt.title(f'K={k} | PSNR={PSNR(original_image, reconstructed):.1f}')
 		plt.axis('off')
 		path = os.path.join(args.output_folder, f'dct_reconstructed_causal_k{k}.png')
 		plt.imsave(path, reconstructed, cmap='gray')
