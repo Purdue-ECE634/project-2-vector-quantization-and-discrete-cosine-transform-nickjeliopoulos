@@ -7,6 +7,7 @@ from typing import *
 import argparse
 import os
 
+plt.style.use('fast')
 
 def PSNR(source, target) -> float:
 	### Numerical stability (what if mse = 0?)
@@ -18,6 +19,8 @@ def PSNR(source, target) -> float:
 	return psnr
 
 
+### Rather than using PyTorch, I just used the minimal scipy implementation for DCT
+### A bit easier this way. I could have converted the output to Torch, but it's not necessary becaus the script is so short anyway.
 def dct2(block):
 	"""Compute the 2D Discrete Cosine Transform (DCT) of a block."""
 	return scipy.fftpack.dct(scipy.fftpack.dct(block, axis=0, norm='ortho'), axis=1, norm='ortho')
@@ -40,39 +43,22 @@ def apply_dct(image, block_size=8):
 	return dct_image
 
 
-def apply_topk_magnitude_idct(dct_image, block_size=8, k=8):
-	"""	Reconstruct image using only largest mangitude coefficients to reconstruct the image
-	"""
-	h, w = dct_image.shape
-	reconstructed = np.zeros((h, w))
-	
-	for i in range(0, h, block_size):
-		for j in range(0, w, block_size):
-			block = dct_image[i:i+block_size, j:j+block_size].copy()
-			
-			### Keep only the top-k largest magnitude coefficients
-			### Notice the -np.abs() to sort in descending order
-			flat_indices = np.argsort(-np.abs(block).flatten())
-			### Mask out everything except these largest top-K coefficients
-			mask = np.zeros_like(block)
-			mask.flat[flat_indices[:k]] = 1
-			block *= mask
-			
-			reconstructed[i:i+block_size, j:j+block_size] = idct2(block)
-	
-	return reconstructed
+### Used for the causal mask
+def zigzag_indices(n: int) -> List[Tuple[int, int]]:
+    indices = [(x, y) for x in range(n) for y in range(n)]
+    indices.sort(key=lambda x: (x[0] + x[1], x[1] if (x[0] + x[1]) % 2 == 0 else -x[1]))
+    return indices
 
 
-def get_causal_mask(block_size: int, r: int) -> Tuple[np.ndarray, int]:
-	"""Create a causal mask for the IDCT reconstruction"""
-	mask = np.zeros((block_size, block_size))
-
-	for i in range(block_size):
-		for j in range(block_size):
-			do_mask = i + j < block_size*block_size and i + j < r
-			mask[i, j] = 1 if do_mask else 0
-
-	return mask
+### Generate mask for IDCT reconstruction, where only the first-k coefficients are kept
+def get_causal_mask(block_size: int, r: int) -> np.ndarray:
+    """Generate a causal mask for the first-k DCT coefficients using zig-zag indexing."""
+    mask = np.zeros((block_size, block_size), dtype=np.float32)
+    indices = zigzag_indices(block_size)
+    for idx in range(k):
+        x, y = indices[idx]
+        mask[x, y] = 1.0
+    return mask
 
 
 def apply_firstk_causal_index_idct(dct_image, block_size=8, k=8):
@@ -83,7 +69,7 @@ def apply_firstk_causal_index_idct(dct_image, block_size=8, k=8):
 	h, w = dct_image.shape
 	reconstructed = np.zeros((h, w))
 	mask = get_causal_mask(block_size, k)
-	print(f"Causal Mask ({np.sum(mask, dtype=np.int32)} non-zero):\n{mask}")
+	# print(f"Causal Mask ({np.sum(mask, dtype=np.int32)} non-zero):\n{mask}")
 	
 	for i in range(0, h, block_size):
 		for j in range(0, w, block_size):
@@ -100,6 +86,7 @@ if __name__ == "__main__":
 	### Get arguments
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--image-path", type=str, default="akiyo0000.png")
+	parser.add_argument("--block-size", type=int, default=8)
 	parser.add_argument("--output-folder", type=str, default="output/")
 	args = parser.parse_args()
 
@@ -115,47 +102,29 @@ if __name__ == "__main__":
 	image_tensor = transform(image).squeeze().numpy()
 	
 	### Apply DCT and reconstruct with different coefficients
-	dct_image = apply_dct(image_tensor, block_size=8)
+	dct_image = apply_dct(image_tensor, block_size=args.block_size)
 	print(f"Original image shape: {image_tensor.shape}")
 	print(f"DCT image shape: {dct_image.shape}")
-	
-	###
-	### Top-K Magnitude
-	###
-	plt.figure(figsize=(10, 5))
-	for idx, k in enumerate([2, 4, 8, 16, 32]):
-		### Switch out IDCT variant here
-		reconstructed = apply_topk_magnitude_idct(dct_image, block_size=8, k=k)
-		plt.subplot(2, 3, idx+1)
-		plt.imshow(reconstructed, cmap='gray')
-		plt.title(f'K={k} | PSNR={PSNR(image_tensor, reconstructed):.1f}')
-		plt.axis('off')
-		path = os.path.join(args.output_folder, f'dct_reconstructed_topk_mag_k{k}.png')
-		plt.imsave(path, reconstructed, cmap='gray')
-
-	plt.subplot(2, 3, 6)
-	plt.imshow(image_tensor, cmap='gray')
-	plt.title('Original')
-	plt.axis('off')
-	plt.show()
 
 	###
 	### First-K Causal Index Mask
 	###
-	plt.figure(figsize=(10, 5))
-	for idx, k in enumerate([1, 2, 3, 6, 8]):
+	k_list = [1, 2, 4, 8, 16, 32, 48, 63, 64]
+	plot_columns = 3
+	plot_rows = 3
+
+	plt.figure(figsize=(16, 9))
+
+	for idx, k in enumerate(k_list):
 		### Switch out IDCT variant here
-		reconstructed = apply_firstk_causal_index_idct(dct_image, block_size=8, k=k)
-		plt.subplot(2, 3, idx+1)
+		reconstructed = apply_firstk_causal_index_idct(dct_image, block_size=args.block_size, k=k)
+		plt.subplot(plot_rows, plot_columns, idx+1)
 		plt.imshow(reconstructed, cmap='gray')
 		plt.title(f'K={k} | PSNR={PSNR(image_tensor, reconstructed):.1f}')
 		plt.axis('off')
 		path = os.path.join(args.output_folder, f'dct_reconstructed_causal_k{k}.png')
 		plt.imsave(path, reconstructed, cmap='gray')
-	
-	plt.subplot(2, 3, 6)
-	plt.imshow(image_tensor, cmap='gray')
-	plt.title('Original')
-	plt.axis('off')
+
+	plt.tight_layout()
 	plt.show()
 	
