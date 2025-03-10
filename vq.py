@@ -130,7 +130,7 @@ if __name__ == "__main__":
 	parser.add_argument("--output-folder", type=str, default="output/")
 	parser.add_argument("--codebook-size", type=int, default=128)
 	parser.add_argument("--block-size", type=int, default=4)
-	parser.add_argument("--max-iters", type=int, default=4)
+	parser.add_argument("--max-iters", type=int, default=128)
 	args = parser.parse_args()
 
 	### Variable Init
