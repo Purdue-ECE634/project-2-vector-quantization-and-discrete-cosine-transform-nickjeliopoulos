@@ -18,7 +18,7 @@ class VectorQuantizer(nn.Module):
 		self.codebook_size = codebook_size
 		self.block_size = block_size
 		self.max_iters = max_iters
-		self.codebook = torch.zeros(size=[codebook_size, block_size * block_size, channels])
+		self.codebook = torch.empty(size=[codebook_size, block_size * block_size, channels])
 			
 	
 	### Deconstruct image into blocks
@@ -53,46 +53,50 @@ class VectorQuantizer(nn.Module):
 		codebook_flat = self.codebook.reshape(N, -1)
 		### Use p-norm (p=2) as a distance metric
 		distances = torch.cdist(blocks_flat, codebook_flat, p=2)
+		### NOTE: You could apply 1.0 - softmax(x) on the distance metric to get a probability distribution
+		### You could sample from this for fitting - might regularize?
 		return distances
 	
 
-	### Lloyd's Algorithm to create a codebook
+	### Lloyd's Algorithm (modified) to create a codebook
+	@torch.inference_mode()
 	def fit(self, tensor_train_dataset: List[torch.Tensor]) -> Any:
 		### Blockify the tensor dataset
 		block_train_dataset = torch.cat([self.blockify_image(img) for img in tensor_train_dataset], dim=0)
 		N, BB, C = block_train_dataset.shape
 
+		### Initialize codebook with N random blocks from the block_train_dataset
+		indices = torch.randperm(N)[:self.codebook_size]
+		self.codebook = block_train_dataset[indices]
+
 		### Iterate until convergence or maximum iterations reached
 		for iteration_index in range(self.max_iters):
+			### Compute distances between each block and each codebook vector, then find the closest codebook vector to each block
 			block_codebook_distances = self._codebook_block_distance(block_train_dataset)
 			closest_codebook_indices = torch.argmin(block_codebook_distances, dim=1)
 			### Initialize new codebook and counts
 			### NOTE: There are many choices for initialization, this is just one
 			# new_codebook = torch.zeros_like(self.codebook)
-			new_codebook = self.codebook.clone()
-			# new_codebook = torch.zeros_like(self.codebook) + torch.randn_like(self.codebook)
-			# new_codebook = torch.zeros_like(self.codebook)
+			### Add a small amount of noise to the codebook. Because we initialize the codebook with random blocks from the actual trainset, we want to encourage
+			### more variance in the codebook. This changes some of the closest distance computations, and should result in more diverse codebook vectors.
+			new_codebook = self.codebook.clone() + torch.randn_like(self.codebook) * 1e-4
 			counts = torch.zeros(N, dtype=torch.float32)
 
 			print(f"Iteration {iteration_index+1}/{self.max_iters}")
 
 			### Populate new codebook by summing up all blocks that are closest to each codebook vector
-			### Afterwards, average by the number of blocks that were closest to each codebook vector
+			### Use a running average to update the codebook in a single loop
 			for i in range(N):
-				closest_indices = closest_codebook_indices[i]
-				new_codebook[closest_indices] += block_train_dataset[i]
-				counts[closest_indices] += 1.0
-
-			### Avoid division by zero, rescale codebook by counts
-			for i in range(self.codebook_size):
-				if counts[i] > 0:
-					new_codebook[i] /= counts[i]
+				closest_index = closest_codebook_indices[i]
+				counts[closest_index] += 1.0
+				new_codebook[closest_index] += (block_train_dataset[i] - new_codebook[closest_index]) / counts[closest_index]
 
 			### Check for convergence - if we haven't changed much, then stop early!
-			if torch.allclose(self.codebook, new_codebook, atol=1e-5):
+			if torch.allclose(self.codebook, new_codebook, rtol=1e-4, atol=1e-8):
 				print(f"Early exiting! Converged early")
 				break
-
+			
+			### Update codebook
 			self.codebook = new_codebook
 
 		return self
@@ -107,6 +111,7 @@ class VectorQuantizer(nn.Module):
 
 
 	### Apply quantization to an image
+	@torch.inference_mode()
 	def forward(self, image: torch.Tensor) -> torch.Tensor:
 		blocks = self.blockify_image(image)
 		quantized_blocks = self._quantize(blocks)
@@ -114,6 +119,10 @@ class VectorQuantizer(nn.Module):
 
 
 if __name__ == "__main__":
+	### Set seeds. We do use a randn(...) in here
+	torch.manual_seed(37)
+	np.random.seed(37)
+
 	### Get arguments
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--image-folder", type=str, default="train/")
@@ -171,4 +180,4 @@ if __name__ == "__main__":
 			quantized_image = to_pil_transform(quantized_image_tensor)
 			quantized_image.save(os.path.join(args.output_folder, f"quant_c{args.codebook_size}_b{args.block_size}_{filename}"))
 	
-
+	
