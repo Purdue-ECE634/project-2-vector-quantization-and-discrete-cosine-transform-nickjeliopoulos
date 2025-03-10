@@ -185,7 +185,7 @@ if __name__ == "__main__":
 	for filename in os.listdir(args.image_eval_folder):
 		if filename.endswith(".png") or filename.endswith(".jpg") or filename.endswith(".jpeg"):
 			print(f"Loading {filename} from eval split for quantization")
-			image_path = os.path.join(args.image_folder, filename)
+			image_path = os.path.join(args.image_eval_folder, filename)
 			image = Image.open(image_path).convert("L")
 			image_tensor = transform(image).permute(1, 2, 0)
 			### Pass 'image_tensor' through vector quantizer 'vq'
